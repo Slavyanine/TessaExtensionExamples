@@ -1,0 +1,256 @@
+#tessa_exchange_format(Version:1, CreationTime:2022-02-24T11\:18\:35) {
+	#exchange_view(RowID:ab58bf23-b9d7-4b51-97c1-c9517daa7993, Alias:Departments, Caption:Подразделения, ModifiedById:b437522f-509a-460d-b44b-3c528d8ba7d6, ModifiedByName:Пятибратова А.В., FormatVersion:2, ModifiedDateTime:2022-02-24T11\:17\:55, GroupName:System) {
+		#metadata {
+			#view(DefaultSortColumn: RoleName, DefaultSortDirection: asc, Paging: always, RowCountSubset: Count, MultiSelect: true, QuickSearchParam: Name)
+			#column(Alias: RoleID, Hidden: true, Type: $Roles.ID)
+			#column(Alias: RoleIdx, Caption: Индекс, SortBy: t.Idx)
+			#column(Alias: RoleName, Caption: $Views_Departments_Department, Type: $Roles.Name, Localizable: true, SortBy: t.Name)
+			#column(Alias: HeadUserID, Hidden: true, Type: $DepartmentRoles.HeadUserID)
+			#column(Alias: HeadUserName, Caption: $Views_Departments_HeadUser, Type: $DepartmentRoles.HeadUserName)
+			#column(Alias: ActionStatusID, Hidden: true)
+			#column(Alias: ActionStatusName, Caption: Статус действия)
+			#column(Alias: CuratorID, Hidden: true)
+			#column(Alias: CuratorName, Caption: Куратор)
+			#column(Alias: CFOID, Hidden: true)
+			#column(Alias: CFOName, Caption: ЦФО)
+
+			#column(Alias: DepartmentTypeID, Hidden: true)
+			#column(Alias: DepartmentTypeName, Caption: Тип подразделения)
+			#column(Alias: ParentRoleID, Hidden: true, Type: $Roles.ParentID)
+			#column(Alias: ParentRoleName, Caption: $Views_Departments_ParentDepartment, Type: $Roles.Name, Localizable: true)
+			#column(Alias: rn, Hidden: true, Type: Int64)
+
+			#param(Alias: Name, Caption: $Views_Departments_Name_Param, Multiple: true, Type: $Roles.Name)
+			#param(Alias: UserName, Caption: $Views_Departments_User_Param, Type: String, Multiple: true)
+			#param(Alias: DepID, Caption: $Views_Departments_Department_Param, Hidden: true, Type: $Roles.ID)
+			#param(Alias: ParentDepID, Caption: $Views_Departments_ParentDep_Param, Multiple: true, Type: $Roles.ParentID, RefSection: DepartmentRoles) {
+				#autocomplete(View: Departments, Param: Name, PopupColumns: 1 3 5)
+			}
+			#param(Alias: ShowHidden, Caption: $Views_Departments_ShowHidden_Param, Type: Boolean, AllowedOperands: IsTrue IsFalse)
+			#param(Alias: OnlyHidden, Caption: Только скрытые подразделения, Type: Boolean, AllowedOperands: IsTrue IsFalse)
+			#param(Alias: NameIdx, Caption: Название и индекс, Multiple: true, Type: nvarchar)
+			#reference(ColPrefix: Role, RefSection: DepartmentRoles DurableRoles Roles, DisplayValueColumn: RoleName, IsCard: true, OpenOnDoubleClick: true)
+			#reference(ColPrefix: HeadUser, RefSection: PersonalRoles DurableRoles Roles, DisplayValueColumn: HeadUserName, IsCard: true, OpenOnDoubleClick: false)
+			#subset(Alias: ByDep, Caption: $Views_Departments_ByDep_Param, Kind: Tree, RefParam: DepID, TreeRefParam: ParentDepID, RefColumn: RoleID, CaptionColumn: RoleName, CountColumn: cnt, TreeHasChildrenColumn: HasChildren)
+			#subset(Alias: Count)
+		}
+		#description {}
+		#ms_query {
+			-- ДОЧЕРНИЕ Подразделения
+			;WITH childs AS \(
+			    SELECT p.ID
+			    FROM Roles p with\(nolock\)
+			    WHERE 1=1 
+			   -- \#param\(Name\, p.Name\)
+			   \#if\(DepID\)
+			   \{
+			   \#param\(DepID\, [p].[ID]\)
+			   \} 
+			   \#if\(ParentDepID\)
+			   \{
+			   \#param\(ParentDepID\, p.id\)
+			   \}
+			   	 UNION ALL
+			     SELECT p.ID
+			     FROM Roles p with\(nolock\)
+			        INNER JOIN childs c
+			            ON p.ParentID = c.ID
+			\)
+			SELECT
+				\#if\(Normal\) \{
+				[t].[RoleID]\,
+				[t].[RoleName]\,
+				[t].[RoleIndex] as [RoleIdx]\,
+				[d].[HeadUserID]\,
+				[d].[HeadUserName]\,
+				[d].[ActionStatusID]\,
+				[d].[ActionStatusName]\,
+				[d].[CuratorID]\,
+				[d].[CuratorName]\,
+				[d].[CFOID]\,
+				[d].[CFOName]\,
+				[d].[DepartmentTypeID]\,
+				[d].[DepartmentTypeName]\,
+				[t].[ParentRoleID]\,
+				[pr].[Name]									AS [ParentRoleName]\,
+				[t].[rn]
+				\} \{
+				[t].*
+				\}
+			FROM \(
+				SELECT
+					\#if\(Normal\) \{
+					[t].[ID]								AS [RoleID]\,
+					[t].[Name]								AS [RoleName]\,
+					[t].[Idx]								AS [RoleIndex]\,
+					[t].[ParentID]							AS [ParentRoleID]\,
+					row_number\(\) OVER \(ORDER BY \#order_by\)	AS [rn]
+					\}
+					\#if\(ByDep\) \{
+					[t].[ID]								AS [RoleID]\,
+					[t].[Name]								AS [RoleName]\,
+					[t].[Idx]								AS [RoleIndex]\,
+					\(
+						SELECT count\(*\)
+						FROM [RoleUsers] AS [ru] WITH \(NOLOCK\)
+						WHERE [ru].[ID] = [t].[ID]
+					\) AS [cnt]\,
+					CASE WHEN EXISTS \(
+						SELECT NULL
+						FROM [Roles] AS [r] WITH \(NOLOCK\)
+						WHERE [r].[ParentID] = [t].[ID]
+							\#if\(\(!ShowHidden || ShowHidden.CriteriaName != "IsTrue"\) && OnlyHidden.CriteriaName != "IsTrue"\) \{
+							AND [r].[Hidden] = 0
+							\}
+							\#if\( OnlyHidden.CriteriaName = "IsTrue" && ShowHidden.CriteriaName != "IsTrue"\) \{
+							AND [t].[Hidden] = 1
+					\}\)
+						THEN CAST\(1 AS bit\)
+						ELSE CAST\(0 AS bit\)
+					END AS [HasChildren]
+					\}
+					\#if\(Count\) \{
+					count\(*\) AS [cnt]
+					\}
+				FROM [Roles] AS [t] WITH \(NOLOCK\)
+				WHERE [t].[TypeID] = 2	-- тип = департамент
+					\#param\(Name\, [t].[Name]\)
+					--\#param\(ParentDepID\, [t].[ParentID]\)
+					\#if\(DepID\)\{
+					AND exists
+			    	\(
+			    	SELECT ID FROM childs as chi where chi.id = t.ID --and t.id != \#param\(ParentDepID\)
+			    	\)
+			    	\}
+					--\#param\(DepID\, [t].[ParentID]\)
+					
+					\#if\(ByDep\)
+					\{
+					--\#param\(DepID\, [t].[ParentID]\)
+					\#param\(ParentDepID\, [t].[ParentID]\)
+					\}\{
+			    	\#if\(ParentDepID\)
+					\{AND exists
+			    	\(
+			    	SELECT ID FROM childs as chi where chi.id = t.ID and t.id != \#param\(ParentDepID\)
+			    	\)
+			    	\}
+					\}
+					\#param\(NameIdx\, [t].[Name] + [t].[Idx]\)
+					-- если параметр "показать скрытые" не задан или задан как не "да"\, то не будем отображать скрытые
+					\#if\(\(!ShowHidden || ShowHidden.CriteriaName != "IsTrue"\) && OnlyHidden.CriteriaName != "IsTrue"\) \{
+					AND [t].[Hidden] = 0
+					\}
+					\#if\( OnlyHidden.CriteriaName = "IsTrue" && ShowHidden.CriteriaName != "IsTrue"\) \{
+					AND [t].[Hidden] = 1
+					\}
+					\#if\(UserName\) \{
+					AND EXISTS \(
+						SELECT NULL
+						FROM [RoleUsers] AS [ru] WITH \(NOLOCK\)
+						WHERE [ru].[ID] = [t].[ID]
+							\#param\(UserName\, [ru].[UserName]\)\)
+					\}
+				\) AS [t]
+			\#if\(Normal\) \{
+			INNER JOIN [DepartmentRoles] AS [d] WITH \(NOLOCK\)
+				ON [d].[ID] = [t].[RoleID]
+			LEFT JOIN [Roles] AS [pr] WITH \(NOLOCK\)
+				ON [pr].[ID] = [t].[ParentRoleID]
+			\}
+			\#if\(PageOffset\) \{
+			WHERE [t].[rn] >= \#param\(PageOffset\) AND [t].[rn] < \(\#param\(PageOffset\) + \#param\(PageLimit\)\)
+			\}
+			\#if\(ByDep\) \{
+			ORDER BY [t].[RoleName]
+			\}
+			\#if\(Normal\) \{
+			ORDER BY [t].[rn]
+			\}
+		}
+		#pg_query {
+			SELECT
+				\#if\(Normal || ByDep\) \{
+				"t"."ID"				AS "RoleID"\,
+				"t"."Name"				AS "RoleName"\,
+				\}
+				\#if\(Normal\) \{
+				"d"."HeadUserID"\,
+				"d"."HeadUserName"\,
+				"t"."ParentID"			AS "ParentRoleID"\,
+				"pr"."Name"				AS "ParentRoleName"\,
+				0\:\:int8 AS "rn"
+				\}
+				\#if\(ByDep\) \{
+				"t"."cnt"\,
+				"t"."HasChildren"
+				\}
+				\#if\(Count\) \{
+				"t"."cnt"
+				\}
+			FROM \(
+				SELECT
+					\#if\(Normal\) \{
+					"t"."ID"\,
+					"t"."Name"\,
+					"t"."ParentID"
+					\}
+					\#if\(ByDep\) \{
+					"t"."ID"\,
+					"t"."Name"\,
+					\(
+						SELECT count\(*\)
+						FROM "RoleUsers" AS "ru"
+						WHERE "ru"."ID" = "t"."ID"
+					\) AS "cnt"\,
+					CASE WHEN EXISTS \(
+						SELECT NULL
+						FROM "Roles" AS "r"
+						WHERE "r"."ParentID" = "t"."ID"
+							\#if\(!ShowHidden || ShowHidden.CriteriaName != "IsTrue"\) \{
+							AND "r"."Hidden" = false
+							\}\)
+						THEN true
+						ELSE false
+					END AS "HasChildren"
+					\}
+					\#if\(Count\) \{
+					count\(*\) AS "cnt"
+					\}
+				FROM "Roles" AS "t"
+				WHERE "t"."TypeID" = 2	-- тип = департамент
+					\#param\(Name\, "t"."Name"\)
+					\#param\(DepID\, "t"."ID"\)
+					\#param\(ParentDepID\, "t"."ParentID"\)
+					-- если параметр "показать скрытые" не задан или задан как не "да"\, то не будем отображать скрытые
+					\#if\(!ShowHidden || ShowHidden.CriteriaName != "IsTrue"\) \{
+					AND "t"."Hidden" = false
+					\}
+					\#if\(UserName\) \{
+					AND EXISTS \(
+						SELECT NULL
+						FROM "RoleUsers" AS "ru"
+						WHERE "ru"."ID" = "t"."ID"
+							\#param\(UserName\, "ru"."UserName"\)\)
+					\}
+				\#if\(Normal\) \{
+				ORDER BY \#order_by
+				\}
+				\#if\(PageOffset\) \{
+				OFFSET \#param\(PageOffset\) - 1 LIMIT \#param\(PageLimit\)
+				\}
+				\) AS "t"
+			\#if\(Normal\) \{
+			INNER JOIN "DepartmentRoles" AS "d"
+				ON "d"."ID" = "t"."ID"
+			LEFT JOIN "Roles" AS "pr"
+				ON "pr"."ID" = "t"."ParentID"
+			ORDER BY \#order_by
+			\}
+			\#if\(ByDep\) \{
+			ORDER BY "t"."Name"
+			\}
+		}
+		#role(RoleID:7ff52dc0-ff6a-4c9d-ba25-b562c370004d, ViewID:ab58bf23-b9d7-4b51-97c1-c9517daa7993) 
+	}
+}
